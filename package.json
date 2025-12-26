@@ -1,0 +1,27 @@
+{
+  "name": "lockbox-web",
+  "version": "1.0.0",
+  "description": "Lockbox - Enterprise Password Manager (Web Version)",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "server:prod": "cd server && npm start",
+    "client": "cd client && npm start",
+    "build": "cd server && npm run build && cd ../client && npm run build",
+    "build:server": "cd server && npm run build",
+    "build:client": "cd client && npm run build",
+    "start": "concurrently \"npm run server:prod\" \"npm run client\"",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "setup": "npm run install:all && npm run build:server",
+    "clean": "rimraf node_modules server/node_modules server/dist client/node_modules client/build",
+    "reset": "npm run clean && npm run setup"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "rimraf": "^5.0.10"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
