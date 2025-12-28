@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Plus, 
@@ -20,9 +20,11 @@ import {
 } from 'lucide-react';
 import { vaultAPI } from '../services/api';
 import { EncryptionService } from '../services/encryption';
+import { useAuthStore } from '../store/authStore';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import AddItemModal from '../components/AddItemModal';
+import DeleteConfirmModal from '../components/DeleteConfirmModal';
 
 interface VaultItem {
   id: string;
@@ -44,8 +46,29 @@ const VaultPage: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<VaultItem | null>(null);
   const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteConfirmTitle, setDeleteConfirmTitle] = useState<string>('');
   
   const queryClient = useQueryClient();
+  const { encryptionKey } = useAuthStore();
+
+  // Ensure encryption key is set when page loads
+  useEffect(() => {
+    // Try to restore from sessionStorage if not in memory
+    let key = encryptionKey;
+    if (!key) {
+      const savedKey = sessionStorage.getItem('lockbox-encryption-key');
+      if (savedKey) {
+        key = savedKey;
+        // Update store so it's available in memory
+        useAuthStore.setState({ encryptionKey: savedKey });
+      }
+    }
+    
+    if (key && !EncryptionService.getKey()) {
+      EncryptionService.setKey(key);
+    }
+  }, [encryptionKey]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['vault-items', selectedType, showFavorites],
@@ -56,6 +79,11 @@ const VaultPage: React.FC = () => {
       const response = await vaultAPI.getItems(params);
       return response.data.items;
     },
+    // Reduce unnecessary refetches
+    staleTime: 60 * 1000, // 1 minute
+    gcTime: 10 * 60 * 1000, // 10 minutes (previously cacheTime)
+    refetchOnWindowFocus: false,
+    enabled: !!encryptionKey, // Only fetch if encryption key is available
   });
 
   const deleteMutation = useMutation({
@@ -66,6 +94,18 @@ const VaultPage: React.FC = () => {
     },
     onError: () => {
       toast.error('Failed to delete item');
+    },
+  });
+
+  const favoriteMutation = useMutation({
+    mutationFn: ({ id, isFavorite }: { id: string; isFavorite: boolean }) =>
+      vaultAPI.updateItem(id, { isFavorite }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vault-items'] });
+      toast.success('Updated');
+    },
+    onError: () => {
+      toast.error('Failed to update favorite');
     },
   });
 
@@ -90,6 +130,28 @@ const VaultPage: React.FC = () => {
       return JSON.parse(decrypted);
     } catch {
       return null;
+    }
+  };
+
+  const getItemPreview = (item: VaultItem): string => {
+    try {
+      const data = decryptData(item.data_encrypted);
+      if (!data) return '';
+
+      switch (item.type) {
+        case 'password':
+          return data.username ? `Username: ${data.username}` : 'Password';
+        case 'note':
+          return data.content ? data.content.substring(0, 60) + (data.content.length > 60 ? '...' : '') : 'Note';
+        case 'card':
+          return data.cardHolderName ? `Card: ${data.cardHolderName}` : 'Card';
+        case 'identity':
+          return 'Identity Info';
+        default:
+          return '';
+      }
+    } catch {
+      return '';
     }
   };
 
@@ -146,18 +208,18 @@ const VaultPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row gap-4">
         {/* Search */}
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
+          <Search className="input-icon-left w-5 h-5" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search vault..."
-            className="input pl-10"
+            className="input input-with-icon-left"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white"
+              className="input-icon-right hover:text-white cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -200,12 +262,12 @@ const VaultPage: React.FC = () => {
 
       {/* Items Grid */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="card animate-pulse">
-              <div className="h-6 bg-dark-700 rounded w-3/4 mb-4" />
-              <div className="h-4 bg-dark-700 rounded w-1/2 mb-2" />
-              <div className="h-4 bg-dark-700 rounded w-2/3" />
+            <div key={i} className="card card-hover animate-pulse p-4">
+              <div className="h-5 bg-dark-700 rounded w-3/4 mb-3" />
+              <div className="h-3 bg-dark-700 rounded w-1/2 mb-2" />
+              <div className="h-3 bg-dark-700 rounded w-2/3" />
             </div>
           ))}
         </div>
@@ -225,7 +287,7 @@ const VaultPage: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {filteredItems?.map((item: VaultItem) => {
             const title = decryptTitle(item.title_encrypted);
             const data = decryptData(item.data_encrypted);
@@ -234,32 +296,44 @@ const VaultPage: React.FC = () => {
             return (
               <div
                 key={item.id}
-                className="card card-hover group relative"
+                className="card card-hover group relative p-3"
               >
-                {/* Favorite badge */}
-                {item.is_favorite === 1 && (
-                  <Star className="absolute top-4 right-4 w-5 h-5 text-amber-400 fill-amber-400" />
-                )}
+                {/* Favorite button in top right corner */}
+                <button
+                  onClick={() => {
+                    favoriteMutation.mutate({
+                      id: item.id,
+                      isFavorite: item.is_favorite === 0,
+                    });
+                  }}
+                  className="absolute top-3 right-3 p-1.5 text-dark-400 hover:text-amber-400 transition-colors z-10"
+                  title={item.is_favorite === 1 ? "Remove from favorites" : "Add to favorites"}
+                >
+                  <Star className={clsx(
+                    "w-4 h-4",
+                    item.is_favorite === 1 && "fill-amber-400 text-amber-400"
+                  )} />
+                </button>
 
                 {/* Type icon & Title */}
-                <div className="flex items-start gap-3 mb-4">
+                <div className="flex items-start gap-2 mb-2 pr-6">
                   <div className={clsx(
-                    "p-2 rounded-lg",
+                    "p-1.5 rounded-lg flex-shrink-0",
                     item.type === 'password' && "bg-primary-500/20",
                     item.type === 'note' && "bg-green-500/20",
                     item.type === 'card' && "bg-amber-500/20",
                     item.type === 'identity' && "bg-pink-500/20",
                   )}>
-                    {item.type === 'password' && <Key className="w-5 h-5 text-primary-400" />}
-                    {item.type === 'note' && <FileText className="w-5 h-5 text-green-400" />}
-                    {item.type === 'card' && <CreditCard className="w-5 h-5 text-amber-400" />}
-                    {item.type === 'identity' && <User className="w-5 h-5 text-pink-400" />}
+                    {item.type === 'password' && <Key className="w-4 h-4 text-primary-400" />}
+                    {item.type === 'note' && <FileText className="w-4 h-4 text-green-400" />}
+                    {item.type === 'card' && <CreditCard className="w-4 h-4 text-amber-400" />}
+                    {item.type === 'identity' && <User className="w-4 h-4 text-pink-400" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-white truncate">{title}</h3>
+                    <h3 className="font-semibold text-white truncate text-sm">{title}</h3>
                     {item.category_name && (
                       <span 
-                        className="text-xs px-2 py-0.5 rounded-full mt-1 inline-block"
+                        className="text-xs px-2 py-0.5 rounded-full mt-0.5 inline-block"
                         style={{ 
                           backgroundColor: `${item.category_color}20`,
                           color: item.category_color 
@@ -273,49 +347,26 @@ const VaultPage: React.FC = () => {
 
                 {/* Content based on type */}
                 {item.type === 'password' && data && (
-                  <div className="space-y-2">
-                    {data.username && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-dark-400 text-sm">Username</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-dark-200 text-sm truncate max-w-[150px]">
-                            {data.username}
-                          </span>
-                          <button
-                            onClick={() => copyToClipboard(data.username, 'Username')}
-                            className="p-1 text-dark-400 hover:text-white transition-colors"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {data.password && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-dark-400 text-sm">Password</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-dark-200 text-sm font-mono">
-                            {isPasswordVisible ? data.password : '••••••••'}
-                          </span>
-                          <button
-                            onClick={() => togglePasswordVisibility(item.id)}
-                            className="p-1 text-dark-400 hover:text-white transition-colors"
-                          >
-                            {isPasswordVisible ? (
-                              <EyeOff className="w-4 h-4" />
-                            ) : (
-                              <Eye className="w-4 h-4" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => copyToClipboard(data.password, 'Password')}
-                            className="p-1 text-dark-400 hover:text-white transition-colors"
-                          >
-                            <Copy className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                  <div className="space-y-1 mb-2">
+                    <p className="text-dark-300 text-xs line-clamp-1">
+                      {getItemPreview(item)}
+                    </p>
+                  </div>
+                )}
+
+                {item.type === 'note' && data && (
+                  <div className="space-y-1 mb-2">
+                    <p className="text-dark-300 text-xs line-clamp-1">
+                      {getItemPreview(item)}
+                    </p>
+                  </div>
+                )}
+
+                {item.type === 'card' && data && (
+                  <div className="space-y-1 mb-2">
+                    <p className="text-dark-300 text-xs line-clamp-1">
+                      {getItemPreview(item)}
+                    </p>
                   </div>
                 )}
 
@@ -325,29 +376,28 @@ const VaultPage: React.FC = () => {
                     href={item.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-primary-400 text-sm mt-3 hover:underline"
+                    className="flex items-center gap-1 text-primary-400 text-xs mt-2 mb-2 hover:underline truncate"
                   >
-                    <ExternalLink className="w-4 h-4" />
-                    {new URL(item.url).hostname}
+                    <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate">{new URL(item.url).hostname}</span>
                   </a>
                 )}
 
                 {/* Actions */}
-                <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-dark-700/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center justify-end gap-1 mt-2 pt-2 border-t border-dark-700/50 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => setSelectedItem(item)}
-                    className="p-2 text-dark-400 hover:text-white transition-colors"
+                    className="p-1.5 text-dark-400 hover:text-white transition-colors"
                     title="Edit"
                   >
                     <Edit className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => {
-                      if (confirm('Are you sure you want to delete this item?')) {
-                        deleteMutation.mutate(item.id);
-                      }
+                      setDeleteConfirmId(item.id);
+                      setDeleteConfirmTitle(decryptTitle(item.title_encrypted));
                     }}
-                    className="p-2 text-dark-400 hover:text-red-400 transition-colors"
+                    className="p-1.5 text-dark-400 hover:text-red-400 transition-colors"
                     title="Delete"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -360,9 +410,34 @@ const VaultPage: React.FC = () => {
       )}
 
       {/* Add Item Modal */}
-      {showAddModal && (
-        <AddItemModal onClose={() => setShowAddModal(false)} />
+      {(showAddModal || selectedItem) && (
+        <AddItemModal 
+          onClose={() => {
+            setShowAddModal(false);
+            setSelectedItem(null);
+          }} 
+          editingItem={selectedItem}
+        />
       )}
+
+      {/* Delete Confirm Modal */}
+      <DeleteConfirmModal
+        isOpen={!!deleteConfirmId}
+        title="Delete Item"
+        message={`Are you sure you want to delete "${deleteConfirmTitle}"? This action cannot be undone.`}
+        onConfirm={() => {
+          if (deleteConfirmId) {
+            deleteMutation.mutate(deleteConfirmId);
+          }
+          setDeleteConfirmId(null);
+          setDeleteConfirmTitle('');
+        }}
+        onCancel={() => {
+          setDeleteConfirmId(null);
+          setDeleteConfirmTitle('');
+        }}
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   );
 };

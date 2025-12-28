@@ -7,7 +7,8 @@ import {
   Settings, 
   LogOut,
   Menu,
-  X
+  X,
+  Wrench
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { EncryptionService } from '../services/encryption';
@@ -29,6 +30,7 @@ const Layout: React.FC = () => {
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/vault', icon: Key, label: 'Vault' },
+    { to: '/tools', icon: Wrench, label: 'Tools' },
     { to: '/settings', icon: Settings, label: 'Settings' },
   ];
 

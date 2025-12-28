@@ -18,6 +18,7 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 
 import { authRouter } from './routes/auth';
 import { vaultRouter } from './routes/vault';
@@ -25,8 +26,37 @@ import { syncRouter } from './routes/sync';
 import { settingsRouter } from './routes/settings';
 import { initializeDatabase } from './database/init';
 
+// Auto-create .env file if it doesn't exist
+const envPath = path.join(__dirname, '..', '.env');
+const envExamplePath = path.join(__dirname, '..', '.env.example');
+if (!fs.existsSync(envPath)) {
+  const defaultEnv = `PORT=3001
+NODE_ENV=development
+JWT_SECRET=lockbox-dev-secret-key-${Date.now()}
+JWT_EXPIRES_IN=24h
+DB_PATH=./data/lockbox.db
+RATE_LIMIT_MAX=100
+`;
+  if (fs.existsSync(envExamplePath)) {
+    fs.copyFileSync(envExamplePath, envPath);
+  } else {
+    fs.writeFileSync(envPath, defaultEnv);
+  }
+  console.log('✅ .env file created automatically');
+}
+
 // Load environment variables
 dotenv.config();
+
+// Validate required environment variables
+const requiredEnvVars = ['JWT_SECRET'];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.error(`❌ CRITICAL: Environment variable ${envVar} is required but not set`);
+    process.exit(1);
+  }
+}
+
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -46,9 +76,23 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
     },
   },
   crossOriginEmbedderPolicy: false,
+  hsts: {
+    maxAge: 63072000, // 2 years
+    includeSubDomains: true,
+    preload: true,
+  },
+  frameguard: {
+    action: 'deny',
+  },
+  noSniff: true,
+  xssFilter: true,
+  referrerPolicy: {
+    policy: 'strict-origin-when-cross-origin',
+  },
 }));
 
 // CORS configuration
@@ -75,11 +119,20 @@ app.use('/api/', limiter);
 // Stricter rate limit for auth endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts
+  max: 7, // 7 attempts
   message: { error: 'Too many login attempts, please try again after 15 minutes.' },
   validate: { xForwardedForHeader: false },
 });
 app.use('/api/auth/login', authLimiter);
+
+// Rate limit for register endpoint
+const registerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 7, // 7 attempts
+  message: { error: 'Too many registration attempts, please try again after 15 minutes.' },
+  validate: { xForwardedForHeader: false },
+});
+app.use('/api/auth/register', registerLimiter);
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));

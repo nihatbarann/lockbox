@@ -14,10 +14,14 @@ const LoginPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Prevent double submission
+    if (isLoading) return;
+    
     clearError();
 
     if (!email || !password) {
-      toast.error('Please fill in all fields');
+      toast.error('Lütfen tüm alanları doldurunuz');
       return;
     }
 
@@ -28,10 +32,10 @@ const LoginPage: React.FC = () => {
       if (encryptionKey) {
         EncryptionService.setKey(encryptionKey);
       }
-      toast.success('Welcome back!');
+      toast.success('Hoş geldiniz!');
       navigate('/vault');
     } catch (err: any) {
-      toast.error(err.message || 'Login failed');
+      toast.error(err.message || 'Giriş başarısız');
     }
   };
 
@@ -64,14 +68,12 @@ const LoginPage: React.FC = () => {
                 Email Address
               </label>
               <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <Mail className="w-5 h-5 text-dark-400" />
-                </div>
+                <Mail className="input-icon-left w-5 h-5" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="input pl-11"
+                  className="input input-with-icon-left"
                   placeholder="you@example.com"
                   autoComplete="email"
                 />
@@ -84,21 +86,19 @@ const LoginPage: React.FC = () => {
                 Master Password
               </label>
               <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <Lock className="w-5 h-5 text-dark-400" />
-                </div>
+                <Lock className="input-icon-left w-5 h-5" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="input pl-11 pr-11"
+                  className="input input-with-icon-both"
                   placeholder="Enter your master password"
                   autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white transition-colors"
+                  className="input-icon-right hover:text-white transition-colors cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -121,12 +121,12 @@ const LoginPage: React.FC = () => {
               {isLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Unlocking...
+                  Bağlanıyor...
                 </>
               ) : (
                 <>
                   <Lock className="w-5 h-5" />
-                  Unlock Vault
+                  Kasayı Aç
                 </>
               )}
             </button>
@@ -134,9 +134,9 @@ const LoginPage: React.FC = () => {
 
           {/* Register link */}
           <div className="mt-6 text-center text-dark-400">
-            Don't have an account?{' '}
+            Hesabınız yok mu?{' '}
             <Link to="/register" className="text-primary-400 hover:text-primary-300 transition-colors">
-              Create one
+              Bir tane oluşturun
             </Link>
           </div>
         </div>
@@ -144,7 +144,7 @@ const LoginPage: React.FC = () => {
         {/* Security badge */}
         <div className="mt-6 text-center text-dark-500 text-sm flex items-center justify-center gap-2">
           <Shield className="w-4 h-4" />
-          <span>AES-256 Encrypted • Zero Knowledge</span>
+          <span>AES-256 Şifrelenmiş • Sıfır Bilgi</span>
         </div>
       </div>
     </div>

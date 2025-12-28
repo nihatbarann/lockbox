@@ -14,6 +14,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true,
+  timeout: 15000, // 15 second timeout for auth requests (reduced from 30s)
 });
 
 // Request interceptor - add auth token
@@ -34,10 +35,16 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.code === 'ECONNABORTED') {
+      error.message = 'Request timeout - please try again';
+    }
     if (error.response?.status === 401) {
-      // Token expired or invalid
-      const { logout } = useAuthStore.getState();
-      logout();
+      // Token expired or invalid - only logout if not already on login/register page
+      const currentPath = window.location.pathname;
+      if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
+        const { logout } = useAuthStore.getState();
+        logout();
+      }
     }
     return Promise.reject(error);
   }

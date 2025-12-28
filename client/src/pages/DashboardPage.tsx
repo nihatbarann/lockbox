@@ -85,34 +85,7 @@ const DashboardPage: React.FC = () => {
         })}
       </div>
 
-      {/* Categories */}
-      <div className="card">
-        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-primary-400" />
-          Items by Category
-        </h2>
-        <div className="space-y-3">
-          {isLoading ? (
-            <div className="animate-pulse space-y-3">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-12 bg-dark-700 rounded-lg" />
-              ))}
-            </div>
-          ) : stats?.itemsByCategory?.length ? (
-            stats.itemsByCategory.map((cat: any) => (
-              <div 
-                key={cat.name}
-                className="flex items-center justify-between p-3 rounded-lg bg-dark-700/50"
-              >
-                <span className="text-dark-200">{cat.name}</span>
-                <span className="text-primary-400 font-medium">{cat.count} items</span>
-              </div>
-            ))
-          ) : (
-            <p className="text-dark-400 text-center py-4">No categories yet</p>
-          )}
-        </div>
-      </div>
+
 
       {/* Recent Activity */}
       <div className="card">

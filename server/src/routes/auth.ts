@@ -61,31 +61,8 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     const derivedKey = EncryptionService.deriveKey(masterPassword, salt);
     const encryptionKeyEncrypted = EncryptionService.encrypt(encryptionKey, derivedKey);
 
-    // Create user
-    db.prepare(`
-      INSERT INTO users (id, email, master_password_hash, salt, encryption_key_encrypted)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(userId, email, masterPasswordHash, salt, encryptionKeyEncrypted);
-
-    // Create default categories
-    const defaultCategories = [
-      { name: 'Passwords', icon: 'key', color: '#6366f1' },
-      { name: 'Secure Notes', icon: 'file-text', color: '#10b981' },
-      { name: 'Credit Cards', icon: 'credit-card', color: '#f59e0b' },
-      { name: 'Identity', icon: 'user', color: '#ec4899' },
-    ];
-
-    const insertCategory = db.prepare(`
-      INSERT INTO categories (id, user_id, name, icon, color, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-
-    defaultCategories.forEach((cat, index) => {
-      insertCategory.run(uuidv4(), userId, cat.name, cat.icon, cat.color, index);
-    });
-
     // Generate JWT token
-    const jwtSecret: Secret = process.env.JWT_SECRET || 'fallback-secret';
+    const jwtSecret = process.env.JWT_SECRET!;
     const signOptions: SignOptions = { expiresIn: '24h' };
     const token = jwt.sign(
       { userId, email },
@@ -93,30 +70,64 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       signOptions
     );
 
-    // Create session
-    const sessionId = uuidv4();
-    const tokenHash = EncryptionService.hashPassword(token, salt);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    // Use transaction for all database operations
+    db.transaction(() => {
+      // Create user
+      db.prepare(`
+        INSERT INTO users (id, email, master_password_hash, salt, encryption_key_encrypted)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(userId, email, masterPasswordHash, salt, encryptionKeyEncrypted);
 
-    db.prepare(`
-      INSERT INTO sessions (id, user_id, token_hash, device_info, ip_address, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(sessionId, userId, tokenHash, req.headers['user-agent'], req.ip, expiresAt);
+      // Create default categories in single transaction
+      const defaultCategories = [
+        { name: 'Passwords', icon: 'key', color: '#6366f1' },
+        { name: 'Secure Notes', icon: 'file-text', color: '#10b981' },
+        { name: 'Credit Cards', icon: 'credit-card', color: '#f59e0b' },
+        { name: 'Identity', icon: 'user', color: '#ec4899' },
+      ];
 
-    // Audit log
-    db.prepare(`
-      INSERT INTO audit_log (id, user_id, action, ip_address, user_agent)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(uuidv4(), userId, 'REGISTER', req.ip, req.headers['user-agent']);
+      defaultCategories.forEach((cat, index) => {
+        db.prepare(`
+          INSERT INTO categories (id, user_id, name, icon, color, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(uuidv4(), userId, cat.name, cat.icon, cat.color, index);
+      });
 
+      // Create session in same transaction
+      const sessionId = uuidv4();
+      const tokenHash = EncryptionService.hashPassword(token, salt);
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+      db.prepare(`
+        INSERT INTO sessions (id, user_id, token_hash, device_info, ip_address, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(sessionId, userId, tokenHash, req.headers['user-agent'], req.ip, expiresAt);
+    });
+
+    // Audit log in background (don't block response)
+    setImmediate(() => {
+      try {
+        db.prepare(`
+          INSERT INTO audit_log (id, user_id, action, ip_address, user_agent)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(uuidv4(), userId, 'REGISTER', req.ip, req.headers['user-agent']);
+      } catch (error) {
+        console.error('Audit log error:', error);
+      }
+    });
+
+    // Send response immediately
     res.status(201).json({
       message: 'Registration successful',
       user: { id: userId, email },
       token,
+      encryptionKey,
     });
   } catch (error) {
     console.error('Register error:', error);
-    res.status(500).json({ error: 'Registration failed' });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error details:', errorMessage);
+    res.status(500).json({ error: 'Registration failed', details: errorMessage });
   }
 });
 
@@ -169,8 +180,8 @@ authRouter.post('/login', async (req: Request, res: Response) => {
       const newFailedAttempts = (user.failed_attempts || 0) + 1;
       let lockedUntil = null;
 
-      // Lock account after 5 failed attempts
-      if (newFailedAttempts >= 5) {
+      // Lock account after 10 failed attempts
+      if (newFailedAttempts >= 10) {
         lockedUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes
       }
 
@@ -188,13 +199,8 @@ authRouter.post('/login', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Reset failed attempts on successful login
-    db.prepare(`
-      UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login = ? WHERE id = ?
-    `).run(new Date().toISOString(), user.id);
-
-    // Generate JWT token
-    const jwtSecret: Secret = process.env.JWT_SECRET || 'fallback-secret';
+    // Generate JWT token first (fastest operation)
+    const jwtSecret = process.env.JWT_SECRET!;
     const signOptions: SignOptions = { expiresIn: '24h' };
     const token = jwt.sign(
       { userId: user.id, email: user.email },
@@ -202,31 +208,48 @@ authRouter.post('/login', async (req: Request, res: Response) => {
       signOptions
     );
 
-    // Create session
-    const sessionId = uuidv4();
-    const tokenHash = EncryptionService.hashPassword(token, user.salt);
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    // Use transaction for all database operations
+    db.transaction(() => {
+      // Reset failed attempts
+      db.prepare(`
+        UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login = ? WHERE id = ?
+      `).run(new Date().toISOString(), user.id);
 
-    db.prepare(`
-      INSERT INTO sessions (id, user_id, token_hash, device_info, ip_address, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(sessionId, user.id, tokenHash, req.headers['user-agent'], req.ip, expiresAt);
+      // Create session
+      const sessionId = uuidv4();
+      const tokenHash = EncryptionService.hashPassword(token, user.salt);
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-    // Audit log
-    db.prepare(`
-      INSERT INTO audit_log (id, user_id, action, ip_address, user_agent)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(uuidv4(), user.id, 'LOGIN_SUCCESS', req.ip, req.headers['user-agent']);
+      db.prepare(`
+        INSERT INTO sessions (id, user_id, token_hash, device_info, ip_address, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(sessionId, user.id, tokenHash, req.headers['user-agent'], req.ip, expiresAt);
+    });
 
     // Decrypt encryption key
-    const derivedKey = EncryptionService.deriveKey(masterPassword, user.salt);
-    const encryptionKey = EncryptionService.decrypt(user.encryption_key_encrypted, derivedKey);
+    const decryptedKey = EncryptionService.decrypt(
+      user.encryption_key_encrypted,
+      EncryptionService.deriveKey(masterPassword, user.salt)
+    );
 
+    // Audit log in background (don't block response)
+    setImmediate(() => {
+      try {
+        db.prepare(`
+          INSERT INTO audit_log (id, user_id, action, ip_address, user_agent)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(uuidv4(), user.id, 'LOGIN_SUCCESS', req.ip, req.headers['user-agent']);
+      } catch (error) {
+        console.error('Audit log error:', error);
+      }
+    });
+
+    // Send response immediately
     res.json({
       message: 'Login successful',
       user: { id: user.id, email: user.email },
       token,
-      encryptionKey, // Client will use this for local encryption/decryption
+      encryptionKey: decryptedKey,
     });
   } catch (error) {
     console.error('Login error:', error);

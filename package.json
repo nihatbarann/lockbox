@@ -4,18 +4,14 @@
   "description": "Lockbox - Enterprise Password Manager (Web Version)",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install --legacy-peer-deps",
+    "setup": "npm run install:all && cd server && npm run build",
+    "dev": "concurrently -k \"npm:server\" \"npm:client\"",
     "server": "cd server && npm run dev",
-    "server:prod": "cd server && npm start",
     "client": "cd client && npm start",
     "build": "cd server && npm run build && cd ../client && npm run build",
-    "build:server": "cd server && npm run build",
-    "build:client": "cd client && npm run build",
-    "start": "concurrently \"npm run server:prod\" \"npm run client\"",
-    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
-    "setup": "npm run install:all && npm run build:server",
-    "clean": "rimraf node_modules server/node_modules server/dist client/node_modules client/build",
-    "reset": "npm run clean && npm run setup"
+    "start": "concurrently -k \"npm:server\" \"npm:client\"",
+    "clean": "rimraf node_modules server/node_modules server/dist client/node_modules client/build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

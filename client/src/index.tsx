@@ -10,7 +10,22 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      retry: 1,
+      retry: (failureCount, error: any) => {
+        // Don't retry on 401 Unauthorized errors
+        if (error?.response?.status === 401) {
+          return false;
+        }
+        // Don't retry on 403 Forbidden errors
+        if (error?.response?.status === 403) {
+          return false;
+        }
+        // Don't retry on 404 Not Found errors
+        if (error?.response?.status === 404) {
+          return false;
+        }
+        // Retry other errors up to 1 time
+        return failureCount < 1;
+      },
       staleTime: 5 * 60 * 1000, // 5 minutes
     },
   },

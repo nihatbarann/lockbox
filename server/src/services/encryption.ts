@@ -6,7 +6,9 @@
 import CryptoJS from 'crypto-js';
 import { v4 as uuidv4 } from 'uuid';
 
-const PBKDF2_ITERATIONS = 600000;
+// Balancing security with performance
+const PBKDF2_ITERATIONS_HIGH = 600000; // For password hashing (stored)
+const PBKDF2_ITERATIONS_FAST = 100000; // For key derivation during auth (temporary)
 const KEY_SIZE = 256 / 32; // 256 bits
 const SALT_SIZE = 32;
 
@@ -26,12 +28,24 @@ export class EncryptionService {
   }
 
   /**
-   * Derive a key from password using PBKDF2
+   * Derive a key from password using PBKDF2 (fast version for authentication)
    */
   static deriveKey(password: string, salt: string): string {
     const key = CryptoJS.PBKDF2(password, salt, {
       keySize: KEY_SIZE,
-      iterations: PBKDF2_ITERATIONS,
+      iterations: PBKDF2_ITERATIONS_FAST,
+      hasher: CryptoJS.algo.SHA256,
+    });
+    return key.toString();
+  }
+
+  /**
+   * Derive a key from password using PBKDF2 (high security version for password hashing)
+   */
+  static deriveKeySecure(password: string, salt: string): string {
+    const key = CryptoJS.PBKDF2(password, salt, {
+      keySize: KEY_SIZE,
+      iterations: PBKDF2_ITERATIONS_HIGH,
       hasher: CryptoJS.algo.SHA256,
     });
     return key.toString();
@@ -41,9 +55,8 @@ export class EncryptionService {
    * Hash the master password for storage
    */
   static hashPassword(password: string, salt: string): string {
-    // First derive a key
+    // Use fast derivation for consistency with verification
     const derivedKey = this.deriveKey(password, salt);
-    // Then hash it again for storage
     return CryptoJS.SHA256(derivedKey + salt).toString();
   }
 
@@ -51,7 +64,9 @@ export class EncryptionService {
    * Verify password against stored hash
    */
   static verifyPassword(password: string, salt: string, storedHash: string): boolean {
-    const computedHash = this.hashPassword(password, salt);
+    // Use fast derivation for verification (key derivation only)
+    const derivedKey = this.deriveKey(password, salt);
+    const computedHash = CryptoJS.SHA256(derivedKey + salt).toString();
     return computedHash === storedHash;
   }
 

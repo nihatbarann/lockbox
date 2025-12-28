@@ -20,6 +20,7 @@ import {
 import { settingsAPI, syncAPI } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
+import { EncryptionService } from '../services/encryption';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 
@@ -325,10 +326,32 @@ const SecuritySettings: React.FC = () => {
 
 // Import/Export Settings Component
 const ImportExportSettings: React.FC = () => {
+  const { encryptionKey } = useAuthStore();
+  
   const exportMutation = useMutation({
     mutationFn: async () => {
       const response = await syncAPI.export();
-      return response.data;
+      const data = response.data;
+      
+      // Decrypt all items for export
+      const decryptedItems = data.items.map((item: any) => {
+        try {
+          return {
+            ...item,
+            title_encrypted: EncryptionService.decrypt(item.title_encrypted),
+            data_encrypted: EncryptionService.decrypt(item.data_encrypted),
+            notes_encrypted: item.notes_encrypted ? EncryptionService.decrypt(item.notes_encrypted) : null,
+          };
+        } catch (err) {
+          console.error('Failed to decrypt item:', err);
+          return item;
+        }
+      });
+      
+      return {
+        ...data,
+        items: decryptedItems,
+      };
     },
     onSuccess: (data) => {
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -353,7 +376,25 @@ const ImportExportSettings: React.FC = () => {
       const text = await file.text();
       const data = JSON.parse(text);
       
-      const response = await syncAPI.import(data);
+      // Encrypt all items for import using current user's key
+      const encryptedItems = data.items.map((item: any) => {
+        try {
+          return {
+            ...item,
+            title_encrypted: EncryptionService.encrypt(item.title_encrypted),
+            data_encrypted: EncryptionService.encrypt(item.data_encrypted),
+            notes_encrypted: item.notes_encrypted ? EncryptionService.encrypt(item.notes_encrypted) : null,
+          };
+        } catch (err) {
+          console.error('Failed to encrypt item:', err);
+          return item;
+        }
+      });
+      
+      const response = await syncAPI.import({
+        ...data,
+        items: encryptedItems,
+      });
       toast.success(`Imported ${response.data.imported.items} items`);
     } catch (error) {
       toast.error('Invalid import file');

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { 
   X, 
@@ -18,15 +18,30 @@ import {
 } from 'lucide-react';
 import { vaultAPI } from '../services/api';
 import { EncryptionService } from '../services/encryption';
+import { useAuthStore } from '../store/authStore';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 import zxcvbn from 'zxcvbn';
 
-interface AddItemModalProps {
-  onClose: () => void;
+interface VaultItem {
+  id: string;
+  type: string;
+  title_encrypted: string;
+  data_encrypted: string;
+  notes_encrypted?: string;
+  url?: string;
+  is_favorite: number;
+  category_name?: string;
+  category_color?: string;
+  updated_at: string;
 }
 
-const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
+interface AddItemModalProps {
+  onClose: () => void;
+  editingItem?: VaultItem | null;
+}
+
+const AddItemModal: React.FC<AddItemModalProps> = ({ onClose, editingItem }) => {
   const [type, setType] = useState<'password' | 'note' | 'card' | 'identity'>('password');
   const [title, setTitle] = useState('');
   const [username, setUsername] = useState('');
@@ -35,7 +50,6 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
   const [notes, setNotes] = useState('');
   const [isFavorite, setIsFavorite] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [categoryId, setCategoryId] = useState('');
 
   // Credit Card fields
   const [cardHolderName, setCardHolderName] = useState('');
@@ -57,28 +71,80 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
   const [pwSymbols, setPwSymbols] = useState(true);
 
   const queryClient = useQueryClient();
+  const { encryptionKey } = useAuthStore();
 
-  const { data: categories } = useQuery({
-    queryKey: ['categories'],
-    queryFn: async () => {
-      const response = await vaultAPI.getCategories();
-      return response.data.categories;
-    },
-  });
+  // Load editing item data
+  useEffect(() => {
+    if (editingItem) {
+      setType(editingItem.type as 'password' | 'note' | 'card' | 'identity');
+      setIsFavorite(editingItem.is_favorite === 1);
+      
+      // Decrypt title
+      try {
+        const decryptedTitle = EncryptionService.decrypt(editingItem.title_encrypted);
+        setTitle(decryptedTitle);
+      } catch {
+        setTitle('[Cannot decrypt]');
+      }
+
+      // Decrypt data
+      try {
+        const decryptedData = EncryptionService.decrypt(editingItem.data_encrypted);
+        const data = JSON.parse(decryptedData);
+        
+        if (editingItem.type === 'password') {
+          setUsername(data.username || '');
+          setPassword(data.password || '');
+        } else if (editingItem.type === 'note') {
+          setNotes(data.content || '');
+        } else if (editingItem.type === 'card') {
+          setCardHolderName(data.cardHolderName || '');
+          setCardNumber(data.cardNumber || '');
+          setCardBrand(data.cardBrand || '');
+          setExpiryMonth(data.expiryMonth || '');
+          setExpiryYear(data.expiryYear || '');
+          setCvv(data.cvv || '');
+          setCardPin(data.cardPin || '');
+          setBankName(data.bankName || '');
+        }
+      } catch {
+        // Decryption failed
+      }
+
+      if (editingItem.url) {
+        setUrl(editingItem.url);
+      }
+
+      // Decrypt notes if present
+      if (editingItem.notes_encrypted) {
+        try {
+          const decryptedNotes = EncryptionService.decrypt(editingItem.notes_encrypted);
+          setNotes(decryptedNotes);
+        } catch {
+          // Decryption failed
+        }
+      }
+    }
+  }, [editingItem]);
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await vaultAPI.createItem(data);
-      return response.data;
+      if (editingItem) {
+        const response = await vaultAPI.updateItem(editingItem.id, data);
+        return response.data;
+      } else {
+        const response = await vaultAPI.createItem(data);
+        return response.data;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vault-items'] });
       queryClient.invalidateQueries({ queryKey: ['stats'] });
-      toast.success('Item created successfully');
+      toast.success(editingItem ? 'Item updated successfully' : 'Item created successfully');
       onClose();
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.error || 'Failed to create item');
+      toast.error(error.response?.data?.error || (editingItem ? 'Failed to update item' : 'Failed to create item'));
     },
   });
 
@@ -98,6 +164,11 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
 
     if (!title.trim()) {
       toast.error('Title is required');
+      return;
+    }
+
+    if (!EncryptionService.getKey()) {
+      toast.error('Encryption key not available. Please login again.');
       return;
     }
 
@@ -134,7 +205,6 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
       dataEncrypted,
       notesEncrypted,
       url: url || undefined,
-      categoryId: categoryId || undefined,
       isFavorite,
     });
   };
@@ -154,7 +224,9 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-dark-800 rounded-2xl border border-dark-700 shadow-xl animate-slide-up">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-dark-700">
-          <h2 className="text-xl font-semibold text-white">Add New Item</h2>
+          <h2 className="text-xl font-semibold text-white">
+            {editingItem ? 'Edit Item' : 'Add New Item'}
+          </h2>
           <button
             onClick={onClose}
             className="p-2 text-dark-400 hover:text-white transition-colors rounded-lg hover:bg-dark-700"
@@ -171,8 +243,10 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
                 key={option.type}
                 type="button"
                 onClick={() => setType(option.type as any)}
+                disabled={!!editingItem}
                 className={clsx(
                   "flex flex-col items-center gap-2 p-3 rounded-lg border transition-colors",
+                  editingItem && "opacity-50 cursor-not-allowed",
                   type === option.type
                     ? "bg-primary-500/20 border-primary-500/50 text-primary-400"
                     : "bg-dark-700/50 border-dark-600 text-dark-300 hover:border-dark-500"
@@ -197,23 +271,6 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
               placeholder="e.g., Gmail Account"
               required
             />
-          </div>
-
-          {/* Category */}
-          <div>
-            <label className="block text-sm font-medium text-dark-300 mb-2">
-              Category
-            </label>
-            <select
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-              className="input"
-            >
-              <option value="">No category</option>
-              {categories?.map((cat: any) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
           </div>
 
           {/* Password-specific fields */}
@@ -353,14 +410,12 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
                   Bank Name
                 </label>
                 <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <Building className="w-5 h-5 text-dark-400" />
-                  </div>
+                  <Building className="input-icon-left w-5 h-5" />
                   <input
                     type="text"
                     value={bankName}
                     onChange={(e) => setBankName(e.target.value)}
-                    className="input pl-11"
+                    className="input input-with-icon-left"
                     placeholder="e.g., Chase, Wells Fargo"
                   />
                 </div>
@@ -372,14 +427,12 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
                   Cardholder Name
                 </label>
                 <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <User className="w-5 h-5 text-dark-400" />
-                  </div>
+                  <User className="input-icon-left w-5 h-5" />
                   <input
                     type="text"
                     value={cardHolderName}
                     onChange={(e) => setCardHolderName(e.target.value)}
-                    className="input pl-11"
+                    className="input input-with-icon-left"
                     placeholder="Name on card"
                   />
                 </div>
@@ -436,13 +489,11 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
                     Expiry Month
                   </label>
                   <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                      <Calendar className="w-5 h-5 text-dark-400" />
-                    </div>
+                    <Calendar className="input-icon-left w-5 h-5" />
                     <select
                       value={expiryMonth}
                       onChange={(e) => setExpiryMonth(e.target.value)}
-                      className="input pl-11"
+                      className="input input-with-icon-left"
                     >
                       <option value="">MM</option>
                       {Array.from({ length: 12 }, (_, i) => {
@@ -477,21 +528,19 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
                     CVV / CVC
                   </label>
                   <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                      <Lock className="w-5 h-5 text-dark-400" />
-                    </div>
+                    <Lock className="input-icon-left w-5 h-5" />
                     <input
                       type={showCvv ? 'text' : 'password'}
                       value={cvv}
                       onChange={(e) => setCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                      className="input pl-11 pr-11 font-mono"
+                      className="input input-with-icon-both font-mono"
                       placeholder="•••"
                       maxLength={4}
                     />
                     <button
                       type="button"
                       onClick={() => setShowCvv(!showCvv)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white transition-colors"
+                      className="input-icon-right hover:text-white transition-colors cursor-pointer"
                     >
                       {showCvv ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -502,21 +551,18 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
                     PIN (optional)
                   </label>
                   <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                      <Hash className="w-5 h-5 text-dark-400" />
-                    </div>
+                    <Hash className="input-icon-left w-5 h-5" />
                     <input
                       type={showPin ? 'text' : 'password'}
                       value={cardPin}
                       onChange={(e) => setCardPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      className="input pl-11 pr-11 font-mono"
-                      placeholder="••••"
-                      maxLength={6}
+                      className="input input-with-icon-both"
+                      placeholder="000000"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPin(!showPin)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white transition-colors"
+                      className="input-icon-right hover:text-white transition-colors cursor-pointer"
                     >
                       {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -594,7 +640,7 @@ const AddItemModal: React.FC<AddItemModalProps> = ({ onClose }) => {
               disabled={createMutation.isPending}
               className="flex-1 btn btn-primary"
             >
-              {createMutation.isPending ? 'Saving...' : 'Save Item'}
+              {createMutation.isPending ? (editingItem ? 'Updating...' : 'Saving...') : (editingItem ? 'Update Item' : 'Save Item')}
             </button>
           </div>
         </form>

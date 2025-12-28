@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import api from '../services/api';
+import { EncryptionService } from '../services/encryption';
 
 interface User {
   id: string;
@@ -44,6 +45,12 @@ export const useAuthStore = create<AuthState>()(
           const response = await api.post('/auth/login', { email, masterPassword });
           const { user, token, encryptionKey } = response.data;
           
+          // Set encryption key in the service and sessionStorage
+          if (encryptionKey) {
+            EncryptionService.setKey(encryptionKey);
+            sessionStorage.setItem('lockbox-encryption-key', encryptionKey);
+          }
+          
           set({
             user,
             token,
@@ -66,12 +73,18 @@ export const useAuthStore = create<AuthState>()(
             masterPassword,
             confirmPassword,
           });
-          const { user, token } = response.data;
+          const { user, token, encryptionKey } = response.data;
           
-          // After registration, need to login to get encryption key
+          // Set encryption key in the service and sessionStorage
+          if (encryptionKey) {
+            EncryptionService.setKey(encryptionKey);
+            sessionStorage.setItem('lockbox-encryption-key', encryptionKey);
+          }
+          
           set({
             user,
             token,
+            encryptionKey,
             isAuthenticated: true,
             isLoading: false,
           });
@@ -88,6 +101,10 @@ export const useAuthStore = create<AuthState>()(
         } catch (error) {
           // Ignore logout errors
         } finally {
+          // Clear encryption key and sessionStorage
+          EncryptionService.clearKey();
+          sessionStorage.removeItem('lockbox-encryption-key');
+          
           set({
             user: null,
             token: null,
@@ -124,7 +141,8 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         token: state.token,
         user: state.user,
-        encryptionKey: state.encryptionKey,
+        // SECURITY: Never persist encryption key - keep in memory only
+        // This prevents XSS attacks from extracting the key from localStorage
       }),
     }
   )

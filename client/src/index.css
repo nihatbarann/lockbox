@@ -208,6 +208,23 @@ input:-webkit-autofill:focus {
   @apply w-full px-4 py-3 bg-dark-700/50 border border-dark-600 rounded-lg text-white placeholder-dark-400 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-colors;
 }
 
+/* Icon spacing inside inputs */
+.input-icon-left {
+  @apply absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-dark-400;
+}
+
+.input-icon-right {
+  @apply absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-dark-400;
+}
+
+.input-with-icon-left {
+  @apply pl-11;
+}
+
+.input-with-icon-both {
+  @apply pl-11 pr-11;
+}
+
 /* Password strength colors */
 .strength-weak { @apply bg-red-500; }
 .strength-fair { @apply bg-orange-500; }

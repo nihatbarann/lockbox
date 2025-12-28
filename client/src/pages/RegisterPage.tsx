@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Shield, Mail, Lock, Eye, EyeOff, Loader2, Check, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { EncryptionService } from '../services/encryption';
 import toast from 'react-hot-toast';
 import zxcvbn from 'zxcvbn';
 
@@ -13,7 +14,8 @@ const RegisterPage: React.FC = () => {
   const { register, isLoading, error, clearError } = useAuthStore();
   const navigate = useNavigate();
 
-  const passwordStrength = zxcvbn(password);
+  // Memoize password strength calculation to avoid recalculating on every render
+  const passwordStrength = useMemo(() => zxcvbn(password), [password]);
   const strengthLabels = ['Very Weak', 'Weak', 'Fair', 'Strong', 'Very Strong'];
   const strengthColors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500', 'bg-cyber-blue'];
 
@@ -27,29 +29,39 @@ const RegisterPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Prevent double submission
+    if (isLoading) return;
+    
     clearError();
 
     if (!email || !password || !confirmPassword) {
-      toast.error('Please fill in all fields');
+      toast.error('Lütfen tüm alanları doldurunuz');
       return;
     }
 
     if (password !== confirmPassword) {
-      toast.error('Passwords do not match');
+      toast.error('Şifreler eşleşmiyor');
       return;
     }
 
     if (password.length < 8) {
-      toast.error('Password must be at least 8 characters');
+      toast.error('Şifre en az 8 karakter olmalıdır');
       return;
     }
 
     try {
       await register(email, password, confirmPassword);
-      toast.success('Account created successfully!');
+      // Set encryption key in client-side encryption service
+      const { encryptionKey } = useAuthStore.getState();
+      if (encryptionKey) {
+        EncryptionService.setKey(encryptionKey);
+      }
+      toast.success('Hesap başarıyla oluşturuldu!');
       navigate('/vault');
     } catch (err: any) {
-      toast.error(err.message || 'Registration failed');
+      console.error('Register error:', err);
+      toast.error(err.message || 'Kayıt başarısız');
     }
   };
 
@@ -68,29 +80,27 @@ const RegisterPage: React.FC = () => {
             <Shield className="w-10 h-10 text-white" />
           </div>
           <h1 className="text-3xl font-bold gradient-text">Lockbox</h1>
-          <p className="text-dark-400 mt-2">Create your secure vault</p>
+          <p className="text-dark-400 mt-2">Güvenli kasanızı oluşturun</p>
         </div>
 
         {/* Register Card */}
         <div className="card">
-          <h2 className="text-xl font-semibold text-white mb-6">Create Account</h2>
+          <h2 className="text-xl font-semibold text-white mb-6">Hesap Oluştur</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
             <div>
               <label className="block text-sm font-medium text-dark-300 mb-2">
-                Email Address
+                E-Posta Adresi
               </label>
               <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <Mail className="w-5 h-5 text-dark-400" />
-                </div>
+                <Mail className="input-icon-left w-5 h-5" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="input pl-11"
-                  placeholder="you@example.com"
+                  className="input input-with-icon-left"
+                  placeholder="siz@ornek.com"
                   autoComplete="email"
                 />
               </div>
@@ -99,24 +109,22 @@ const RegisterPage: React.FC = () => {
             {/* Password */}
             <div>
               <label className="block text-sm font-medium text-dark-300 mb-2">
-                Master Password
+                Ana Şifre
               </label>
               <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <Lock className="w-5 h-5 text-dark-400" />
-                </div>
+                <Lock className="input-icon-left w-5 h-5" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="input pl-11 pr-11"
-                  placeholder="Create a strong master password"
+                  className="input input-with-icon-both"
+                  placeholder="Güçlü bir ana şifre oluşturun"
                   autoComplete="new-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white transition-colors"
+                  className="input-icon-right hover:text-white transition-colors cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -165,22 +173,20 @@ const RegisterPage: React.FC = () => {
             {/* Confirm Password */}
             <div>
               <label className="block text-sm font-medium text-dark-300 mb-2">
-                Confirm Password
+                Şifreyi Onayla
               </label>
               <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <Lock className="w-5 h-5 text-dark-400" />
-                </div>
+                <Lock className="input-icon-left w-5 h-5" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="input pl-11 pr-11"
-                  placeholder="Confirm your master password"
+                  className="input input-with-icon-both"
+                  placeholder="Ana şifrenizi onaylayın"
                   autoComplete="new-password"
                 />
                 {confirmPassword && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <div className="input-icon-right">
                     {password === confirmPassword ? (
                       <Check className="w-5 h-5 text-green-500" />
                     ) : (
@@ -193,7 +199,7 @@ const RegisterPage: React.FC = () => {
 
             {/* Warning */}
             <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-400 text-sm">
-              <strong>Important:</strong> Your master password cannot be recovered. Make sure to remember it!
+              <strong>Önemli:</strong> Ana şifreniz kurtarılamaz. Lütfen bunu hatırlayın!
             </div>
 
             {/* Error message */}
@@ -212,12 +218,12 @@ const RegisterPage: React.FC = () => {
               {isLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Creating vault...
+                  Kasa oluşturuluyor...
                 </>
               ) : (
                 <>
                   <Shield className="w-5 h-5" />
-                  Create Secure Vault
+                  Güvenli Kasa Oluştur
                 </>
               )}
             </button>
@@ -225,9 +231,9 @@ const RegisterPage: React.FC = () => {
 
           {/* Login link */}
           <div className="mt-6 text-center text-dark-400">
-            Already have an account?{' '}
+            Zaten hesabınız var mı?{' '}
             <Link to="/login" className="text-primary-400 hover:text-primary-300 transition-colors">
-              Sign in
+              Giriş yapın
             </Link>
           </div>
         </div>

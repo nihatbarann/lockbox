@@ -28,6 +28,7 @@ interface DatabaseWrapper {
   exec: (sql: string) => void;
   close: () => void;
   pragma: (pragma: string) => void;
+  transaction: <T>(fn: () => T) => T;
 }
 
 let dbWrapper: DatabaseWrapper;
@@ -130,6 +131,19 @@ export async function initializeDatabase(): Promise<void> {
         db.run(`PRAGMA ${pragma}`);
       } catch (e) {
         // Ignore pragma errors
+      }
+    },
+    transaction: <T>(fn: () => T): T => {
+      try {
+        // sql.js doesn't handle transactions the same way as better-sqlite3
+        // Just execute the function directly
+        const result = fn();
+        saveDatabase();
+        return result;
+      } catch (error) {
+        // On error, don't try to rollback (sql.js doesn't support it)
+        console.error('Transaction error:', error);
+        throw error;
       }
     }
   };
@@ -257,7 +271,10 @@ function createTables(): void {
     )
   `);
   
-  // Create indexes
+  // Create indexes for performance
+  dbWrapper.exec(`
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
+  `);
   dbWrapper.exec(`
     CREATE INDEX IF NOT EXISTS idx_vault_items_user ON vault_items(user_id)
   `);

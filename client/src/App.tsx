@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
+import { EncryptionService } from './services/encryption';
 
 // Pages
 import LoginPage from './pages/LoginPage';
@@ -9,6 +10,7 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import VaultPage from './pages/VaultPage';
 import SettingsPage from './pages/SettingsPage';
+import ToolsPage from './pages/ToolsPage';
 import Layout from './components/Layout';
 
 // Protected Route wrapper
@@ -34,12 +36,28 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 function App() {
-  const { checkAuth } = useAuthStore();
+  const { checkAuth, encryptionKey, user } = useAuthStore();
   const { theme } = useThemeStore();
   
   useEffect(() => {
+    // Restore encryption key from sessionStorage if it exists
+    const savedKey = sessionStorage.getItem('lockbox-encryption-key');
+    if (savedKey && !encryptionKey) {
+      // If we have a saved key but it's not in memory, restore it
+      useAuthStore.setState({ encryptionKey: savedKey });
+      EncryptionService.setKey(savedKey);
+    }
+    
+    // Check auth once on app mount
     checkAuth();
-  }, [checkAuth]);
+  }, []);
+
+  // Set encryption key whenever it changes
+  useEffect(() => {
+    if (encryptionKey) {
+      EncryptionService.setKey(encryptionKey);
+    }
+  }, [encryptionKey]);
 
   // Theme is applied automatically by themeStore
 
@@ -67,6 +85,7 @@ function App() {
           <Route index element={<Navigate to="/vault" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="vault" element={<VaultPage />} />
+          <Route path="tools" element={<ToolsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         
