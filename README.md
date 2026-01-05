@@ -31,7 +31,7 @@ Lockbox, işletmeler ve bireyler için tasarlanmış güvenli, açık kaynaklı 
 
 ```bash
 # Projeyi klonlayın
-git clone https://github.com/yourusername/lockbox.git
+git clone https://github.com/nihatbarann/lockbox.git
 cd lockbox
 
 # Tüm bağımlılıkları yükleyin (sunucu ve istemci)
@@ -198,12 +198,6 @@ chmod 644 server/data/lockbox.db
 - `JWT_SECRET` ayarlandığını kontrol edin
 - Secret değeri en az 32 karakter olmalı
 - Secret değerini değiştirdikten sonra tüm aktif oturumlar kapatılacaktır
-
----
-
-## 📞 Destek & İletişim
-
-Sorular veya sorunlar için GitHub Issues sayfasında issue açın.
 
 ---
 
